@@ -66,7 +66,7 @@ function bearing(a, b) {
 function fmtDist(m) {
   if (m >= 10000) return Math.round(m / 1000) + ' km';
   if (m >= 1000) return (m / 1000).toFixed(1).replace('.', ',') + ' km';
-  if (m >= 100) return Math.round(m / 50) * 50 + ' m';
+  if (m >= 300) return Math.round(m / 50) * 50 + ' m';
   return Math.max(10, Math.round(m / 10) * 10) + ' m';
 }
 function fmtDur(s) {
@@ -209,6 +209,8 @@ function show(v) {
   $('banner').hidden = !navOn;
   $('fabs').hidden = !navOn;
   $('gauge').hidden = !navOn;
+  $('drawer-tab').hidden = navOn;
+  if (navOn) closeDrawer();
   if (!navOn) $('alert-chip').hidden = true;
 }
 
@@ -301,6 +303,7 @@ function setDest(d) {
   destMarker.setLngLat([d.lng, d.lat]).addTo(map);
   $('place-name').textContent = d.name;
   $('place-addr').textContent = d.addr || '';
+  updatePlaceFavBtn();
   clearRoutes();
   show('place');
   map.flyTo({ center: [d.lng, d.lat], zoom: Math.max(map.getZoom(), 14) });
@@ -491,8 +494,16 @@ function navUpdate() {
 
   // hlas
   const text = instruction(step);
-  if (!step.spokeFar && toStep > 250 && toStep < 1200) { step.spokeFar = true; say('Za ' + fmtDist(toStep).replace('km', 'kilometrů').replace(' m', ' metrů') + ' ' + lowerFirst(text)); }
-  if (!step.spokeNear && toStep <= 120) { step.spokeNear = true; step.spokeFar = true; say(text); }
+  const adv = laneAdvice(N.lanes);
+  const full = (d) => 'Za ' + speakDist(d) + ' ' + lowerFirst(text) + (adv ? '. ' + adv + '.' : '.');
+  if (!step.spokeFar && toStep > 450 && toStep < 1500) { step.spokeFar = true; say(full(toStep)); }
+  if (!step.spokeMid && toStep <= 320 && toStep > 140) { step.spokeMid = true; step.spokeFar = true; say(full(toStep)); }
+  if (!step.spokeNear && toStep <= 70) { step.spokeNear = step.spokeMid = step.spokeFar = true; say(text); }
+
+  // odpočet posledních 300 m
+  const cd = $('countdown');
+  cd.hidden = toStep > 300;
+  if (!cd.hidden) $('countdown-bar').style.width = Math.max(0, Math.min(100, toStep / 3)) + '%';
 
   // čas příjezdu
   const left = N.route.duration * (remaining / N.total);
@@ -599,6 +610,58 @@ function renderBanner(step) {
   }
   $('banner-icon').innerHTML = svg;
   $('banner-instr').textContent = instruction(step);
+  S.nav.lanes = lanesFor(step);
+  renderLanes(S.nav.lanes);
+}
+
+/* ---------- Jízdní pruhy ---------- */
+// OSRM posílá u křižovatky seznam pruhů zleva doprava: {indications: ['left','straight'], valid: true}
+const LANE_PATHS = {
+  straight: '<path d="M12 21V5"/><path d="M7 10l5-5 5 5"/>',
+  right: '<path d="M8 21v-8a5 5 0 0 1 5-5h6"/><path d="M16 5l3 3-3 3"/>',
+  'slight right': '<path d="M9 21v-6l8-8"/><path d="M11 7h6v6"/>',
+  'sharp right': '<path d="M7 21V7l10 10"/><path d="M17 11v6h-6"/>',
+  uturn: '<path d="M15 21V10a4 4 0 0 0-8 0v5"/><path d="M4 12l3 3 3-3"/>',
+};
+function laneIcon(ind) {
+  let key = ind, mirror = false;
+  if (/left/.test(ind)) { key = ind.replace('left', 'right'); mirror = true; }
+  const d = LANE_PATHS[key] || LANE_PATHS.straight;
+  return mirror ? '<g transform="translate(24 0) scale(-1 1)">' + d + '</g>' : d;
+}
+function lanesFor(step) {
+  const it = step.intersections && step.intersections[0];
+  const L = it && it.lanes;
+  return L && L.length > 1 && L.some((l) => l.valid) && L.some((l) => !l.valid) ? L : null;
+}
+function renderLanes(L) {
+  const box = $('lanes');
+  box.innerHTML = '';
+  box.hidden = !L;
+  if (!L) return;
+  L.forEach((l) => {
+    const el = document.createElement('div');
+    el.className = 'lane' + (l.valid ? ' ok' : '');
+    const inds = (l.indications && l.indications.length ? l.indications : ['straight']).filter((x) => x !== 'none');
+    el.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + (inds.length ? inds : ['straight']).map(laneIcon).join('') + '</svg>';
+    box.appendChild(el);
+  });
+  const adv = laneAdvice(L);
+  box.setAttribute('aria-label', adv || 'Jízdní pruhy');
+}
+function laneAdvice(L) {
+  if (!L) return '';
+  const n = L.length, ok = L.map((l, i) => (l.valid ? i : -1)).filter((i) => i >= 0);
+  if (!ok.length || ok.length === n) return '';
+  const many = ok.length > 1;
+  if (ok[ok.length - 1] < n / 2) return 'Drž se ' + (many ? 'v levých pruzích' : 'v levém pruhu');
+  if (ok[0] >= n / 2) return 'Drž se ' + (many ? 'v pravých pruzích' : 'v pravém pruhu');
+  return 'Drž se ' + (many ? 've středních pruzích' : 've středním pruhu');
+}
+function speakDist(m) {
+  if (m >= 1000) return (Math.round(m / 100) / 10).toString().replace('.', ',') + ' kilometru';
+  if (m >= 300) return Math.round(m / 50) * 50 + ' metrů';
+  return Math.round(m / 10) * 10 + ' metrů';
 }
 
 /* ---------- Hlas ---------- */
@@ -734,7 +797,8 @@ function updateAhead() {
   const t = REPORT_TYPES[best.r.type];
   chip.innerHTML = '<span class="dot" style="background:' + t.color + '"></span>' + t.label + ' za ' + fmtDist(best.ahead) + ' · potvrzeno ' + best.r.ok + '×';
   chip.hidden = false;
-  if (!best.r.spoken && best.ahead < 800) { best.r.spoken = true; say(t.label + ' za ' + fmtDist(best.ahead).replace(' m', ' metrů')); }
+  chip.style.top = Math.round($('banner').getBoundingClientRect().bottom + 8) + 'px';
+  if (!best.r.spoken && best.ahead < 800) { best.r.spoken = true; say(t.label + ' za ' + speakDist(best.ahead) + '.'); }
 }
 
 
@@ -794,36 +858,113 @@ $('btn-view').addEventListener('click', toggle3D);
 /* ---------- Oblíbené trasy ---------- */
 S.favs = store.get('favs', []);
 
+S.places = store.get('favPlaces', []);
+
+function favRow(name, sub, onOpen, onDelete) {
+  const row = document.createElement('div');
+  row.className = 'fav-row';
+  const b = document.createElement('button');
+  b.className = 'fav';
+  b.innerHTML = '<span class="f-name"></span><span class="f-sub"></span>';
+  b.children[0].textContent = name;
+  b.children[1].textContent = sub;
+  b.addEventListener('click', onOpen);
+  const del = document.createElement('button');
+  del.className = 'fav-del';
+  del.setAttribute('aria-label', 'Odebrat z oblíbených: ' + name);
+  del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  del.addEventListener('click', onDelete);
+  row.append(b, del);
+  return row;
+}
+
 function renderFavs() {
-  const box = $('fav-list');
-  box.innerHTML = '';
-  $('favs').hidden = !S.favs.length;
+  const places = $('fav-places'), routes = $('fav-list');
+  places.innerHTML = ''; routes.innerHTML = '';
+  $('fav-places-empty').hidden = !!S.places.length;
+  $('fav-routes-empty').hidden = !!S.favs.length;
+  S.places.forEach((f) => {
+    places.appendChild(favRow(f.name, f.addr || '', () => {
+      closeDrawer();
+      setDest({ name: f.name, addr: f.addr, lng: f.lng, lat: f.lat });
+    }, () => {
+      S.places = S.places.filter((x) => x.id !== f.id);
+      store.set('favPlaces', S.places);
+      renderFavs(); updatePlaceFavBtn();
+      toast('Místo odebráno z oblíbených.');
+    }));
+  });
   S.favs.forEach((f) => {
-    const row = document.createElement('div');
-    row.className = 'fav-row';
-    const b = document.createElement('button');
-    b.className = 'fav';
-    b.innerHTML = '<span class="f-name"></span><span class="f-sub"></span>';
-    b.children[0].textContent = f.name;
-    b.children[1].textContent = [f.tagLabel, f.via ? 'přes ' + f.via : ''].filter(Boolean).join(' · ') || f.addr || '';
-    b.addEventListener('click', () => {
+    const sub = [f.tagLabel, f.via ? 'přes ' + f.via : ''].filter(Boolean).join(' · ') || f.addr || '';
+    routes.appendChild(favRow(f.name, sub, () => {
+      closeDrawer();
       setDest({ name: f.name, addr: f.addr, lng: f.lng, lat: f.lat });
       loadRoutes(f);
-    });
-    const del = document.createElement('button');
-    del.className = 'fav-del';
-    del.setAttribute('aria-label', 'Odebrat z oblíbených: ' + f.name);
-    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    del.addEventListener('click', () => {
+    }, () => {
       S.favs = S.favs.filter((x) => x.id !== f.id);
       store.set('favs', S.favs);
       renderFavs();
-      toast('Odebráno z oblíbených.');
-    });
-    row.append(b, del);
-    box.appendChild(row);
+      toast('Trasa odebrána z oblíbených.');
+    }));
   });
 }
+
+/* oblíbená místa */
+const samePlace = (a, b) => Math.abs(a.lng - b.lng) < 1e-5 && Math.abs(a.lat - b.lat) < 1e-5;
+function updatePlaceFavBtn() {
+  const saved = !!(S.dest && S.places.find((f) => samePlace(f, S.dest)));
+  $('btn-fav-place').classList.toggle('saved', saved);
+  $('btn-fav-place-label').textContent = saved ? 'V oblíbených' : 'Přidat do oblíbených';
+}
+$('btn-fav-place').addEventListener('click', () => {
+  if (!S.dest) return;
+  const ex = S.places.find((f) => samePlace(f, S.dest));
+  if (ex) {
+    S.places = S.places.filter((f) => f !== ex);
+    toast('Místo odebráno z oblíbených.');
+  } else {
+    S.places.unshift({ id: Date.now().toString(36), name: S.dest.name, addr: S.dest.addr || '', lng: S.dest.lng, lat: S.dest.lat });
+    toast('Uloženo. Oblíbená místa najdeš v panelu vlevo.');
+  }
+  store.set('favPlaces', S.places);
+  renderFavs(); updatePlaceFavBtn();
+});
+
+/* vysouvací panel */
+function openDrawer() {
+  const d = $('drawer');
+  d.inert = false; d.classList.add('open');
+  $('scrim').hidden = false;
+  $('drawer-tab').setAttribute('aria-expanded', 'true');
+  $('results').hidden = true;
+  setTimeout(() => $('drawer-close').focus(), 50);
+}
+function closeDrawer() {
+  const d = $('drawer');
+  if (!d.classList.contains('open')) return;
+  d.classList.remove('open'); d.inert = true;
+  $('scrim').hidden = true;
+  $('drawer-tab').setAttribute('aria-expanded', 'false');
+}
+$('drawer-tab').addEventListener('click', openDrawer);
+$('drawer-close').addEventListener('click', closeDrawer);
+$('scrim').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+let swipeX = null;
+$('drawer').addEventListener('touchstart', (e) => { swipeX = e.touches[0].clientX; }, { passive: true });
+$('drawer').addEventListener('touchend', (e) => {
+  if (swipeX != null && e.changedTouches[0].clientX - swipeX < -60) closeDrawer();
+  swipeX = null;
+});
+document.addEventListener('touchstart', (e) => {
+  if (S.nav || $('drawer').classList.contains('open')) return;
+  const t = e.touches[0];
+  if (t.clientX < 18) { swipeX = t.clientX; document.addEventListener('touchend', function edge(ev) {
+    document.removeEventListener('touchend', edge);
+    if (ev.changedTouches[0].clientX - swipeX > 60) openDrawer();
+    swipeX = null;
+  }); }
+}, { passive: true });
 
 function currentFav() {
   const r = S.routes[S.sel];
@@ -851,7 +992,7 @@ $('btn-fav').addEventListener('click', () => {
       id: Date.now().toString(36), name: S.dest.name, addr: S.dest.addr || '', lng: S.dest.lng, lat: S.dest.lat,
       tag: tag[0] || '', tagLabel: tag[1] || '', via: ((r.legs[0].summary || '').split(', ')[0]) || '',
     });
-    toast('Trasa uložena do oblíbených.');
+    toast('Trasa uložena. Najdeš ji v panelu vlevo.');
   }
   store.set('favs', S.favs);
   renderFavs();

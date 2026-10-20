@@ -26,7 +26,9 @@ Na mobilu: telefon a Mac ve stejné Wi-Fi, na telefonu otevři `http://<IP adres
 - Jízda nanečisto – simulace jízdy po trase pro testování u stolu
 - Hlášení (kolona, nehoda, policie, uzavírka, překážka, počasí), potvrzení „Stále tam“ / „Už tam není“ a upozornění na hlášení před tebou na trase
 - Uložená místa Domů a Práce s aktuálním časem cesty
-- Oblíbené trasy: v přehledu tras tlačítko „Uložit do oblíbených“, seznam na úvodní obrazovce
+- Oblíbená místa a trasy ve vysouvacím panelu vlevo (záložka s hvězdičkou nebo přejetí prstem od levého okraje)
+- Navigace v pruzích: u křižovatek s daty o pruzích ukáže, ve kterém pruhu se držet, a řekne to i hlasem
+- Odpočet posledních 300 m před odbočením po 10 metrech s ubývajícím pruhem
 - Analogový tachometr během jízdy s hlídáním rychlosti (klepnutím se mění limit 30–130 km/h nebo vypnuto, při překročení hlasové upozornění)
 - Moje auto: ikona auta místo šipky podle karoserie, barvy a roku výroby (značka se ukládá jako text)
 

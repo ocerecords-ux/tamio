@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<link href="style.css?v=4" rel="stylesheet">
+<link href="style.css?v=6" rel="stylesheet">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
@@ -38,6 +38,26 @@
   <ul class="results" id="results" hidden></ul>
 </header>
 
+<!-- Oblíbené: vysouvací panel vlevo -->
+<button class="drawer-tab" id="drawer-tab" aria-label="Otevřít oblíbené" aria-controls="drawer" aria-expanded="false">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>
+</button>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" aria-label="Oblíbené" inert>
+  <div class="drawer-head">
+    <h2>Oblíbené</h2>
+    <button class="icon-btn ghost" id="drawer-close" aria-label="Zavřít oblíbené">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+  </div>
+  <p class="section-label">Místa</p>
+  <div class="fav-list" id="fav-places"></div>
+  <p class="hint" id="fav-places-empty">Zatím žádná. Vyhledej adresu a klepni na hvězdičku „Přidat do oblíbených“.</p>
+  <p class="section-label">Trasy</p>
+  <div class="fav-list" id="fav-list"></div>
+  <p class="hint" id="fav-routes-empty">Zatím žádné. Při výběru trasy klepni na „Uložit do oblíbených“.</p>
+</aside>
+
 <!-- Navigační pokyn (jen během jízdy) -->
 <section class="banner" id="banner" hidden>
   <div class="banner-icon" id="banner-icon"></div>
@@ -45,6 +65,8 @@
     <div class="banner-dist" id="banner-dist">–</div>
     <div class="banner-instr" id="banner-instr">–</div>
   </div>
+  <div class="countdown" id="countdown" hidden aria-hidden="true"><span id="countdown-bar"></span></div>
+  <div class="lanes" id="lanes" hidden role="img" aria-label="Doporučené jízdní pruhy"></div>
 </section>
 <div class="alert-chip" id="alert-chip" hidden></div>
 
@@ -74,10 +96,6 @@
   <!-- Výchozí stav -->
   <div class="view" id="v-idle">
     <div class="quick" id="quick"></div>
-    <div class="favs" id="favs" hidden>
-      <p class="section-label">Oblíbené trasy</p>
-      <div class="fav-list" id="fav-list"></div>
-    </div>
     <div class="chips">
       <button class="chip" data-poi="čerpací stanice">Benzinka</button>
       <button class="chip" data-poi="nabíjecí stanice">Nabíječka</button>
@@ -98,6 +116,10 @@
       </button>
     </div>
     <button class="primary" id="btn-routes">Ukázat trasy</button>
+    <button class="secondary fav-btn" id="btn-fav-place">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>
+      <span id="btn-fav-place-label">Přidat do oblíbených</span>
+    </button>
     <div class="row-btns">
       <button class="secondary" id="save-home">Uložit jako Domů</button>
       <button class="secondary" id="save-work">Uložit jako Práce</button>
@@ -174,6 +196,6 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
