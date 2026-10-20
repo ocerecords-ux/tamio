@@ -221,3 +221,44 @@ h2 { font-family: var(--display); font-weight: 600; font-size: 21px; margin: 0; 
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Oblíbené trasy */
+.section-label { margin: 2px 0 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.favs { display: flex; flex-direction: column; gap: 8px; }
+.fav-list { display: flex; flex-direction: column; gap: 8px; }
+.fav-row { display: flex; gap: 8px; }
+.fav {
+  flex: 1; min-width: 0; text-align: left; border: none; background: var(--surface); border-radius: 14px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+}
+.fav .f-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fav .f-sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fav-del { width: 48px; flex: none; border: none; border-radius: 14px; background: var(--surface); color: var(--muted); display: grid; place-items: center; }
+.fav-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.fav-btn.saved { color: var(--good); border-color: var(--good); }
+.fav-btn.saved svg { fill: currentColor; }
+
+/* Tachometr */
+.gauge {
+  position: fixed; z-index: 6; left: max(12px, var(--sal)); bottom: calc(118px + var(--sab));
+  width: 140px; height: 140px; padding: 0; border-radius: 70px; border: 2px solid var(--line);
+  background: var(--bg); box-shadow: 0 8px 24px rgba(0, 0, 0, .45); transition: border-color .2s;
+}
+.gauge svg { width: 100%; height: 100%; fill: none; stroke: none; }
+.gauge.over { border-color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { #g-needle { transition: none !important; } }
+
+/* Moje auto */
+.me.car { width: 28px; height: 56px; border: none; border-radius: 0; background: none; box-shadow: none; }
+.car-preview { height: 140px; border-radius: var(--r); background: var(--surface); display: grid; place-items: center; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.field select, .field input {
+  height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--text); font: 500 16px var(--body); padding: 0 12px;
+}
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line); background: transparent; font-size: 14px; }
+.seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatches button { width: 40px; height: 40px; border-radius: 20px; border: 2px solid var(--line); }
+.swatches button[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }

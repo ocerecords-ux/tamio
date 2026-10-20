@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<link href="style.css?v=3" rel="stylesheet">
+<link href="style.css?v=4" rel="stylesheet">
 </head>
 <body>
 <div id="map" aria-label="Mapa"></div>
@@ -19,6 +19,9 @@
   <div class="brand-row">
     <div class="brand">tamio</div>
     <div class="top-btns">
+      <button class="icon-btn" id="btn-car" aria-label="Moje auto">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14v-4l-2-5H7l-2 5z"/><path d="M5 13h14"/><circle cx="8" cy="17" r="1.6"/><circle cx="16" cy="17" r="1.6"/></svg>
+      </button>
       <button class="icon-btn view-btn" id="btn-3d" aria-label="Přepnout na 2D mapu"><span class="view-label">2D</span></button>
       <button class="icon-btn" id="btn-locate" aria-label="Vycentrovat na mou polohu">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
@@ -59,6 +62,11 @@
   </button>
 </div>
 
+<!-- Tachometr (jen během jízdy) -->
+<button class="gauge" id="gauge" hidden aria-label="Tachometr">
+  <svg viewBox="0 0 140 140" id="gauge-svg" aria-hidden="true"></svg>
+</button>
+
 <!-- Spodní panel – obsah se mění podle stavu -->
 <section class="sheet" id="sheet" aria-live="polite">
   <div class="grip" aria-hidden="true"></div>
@@ -66,6 +74,10 @@
   <!-- Výchozí stav -->
   <div class="view" id="v-idle">
     <div class="quick" id="quick"></div>
+    <div class="favs" id="favs" hidden>
+      <p class="section-label">Oblíbené trasy</p>
+      <div class="fav-list" id="fav-list"></div>
+    </div>
     <div class="chips">
       <button class="chip" data-poi="čerpací stanice">Benzinka</button>
       <button class="chip" data-poi="nabíjecí stanice">Nabíječka</button>
@@ -103,6 +115,10 @@
     <p class="note" id="routes-note" hidden></p>
     <div class="route-list" id="route-list"></div>
     <button class="primary" id="btn-go">Jedeme</button>
+    <button class="secondary fav-btn" id="btn-fav">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>
+      <span id="btn-fav-label">Uložit do oblíbených</span>
+    </button>
     <button class="text-btn" id="btn-sim">Vyzkoušet jízdu nanečisto</button>
   </div>
 
@@ -127,6 +143,26 @@
     <p class="hint">Hlášení se uloží na místo, kde právě jsi. Ostatní ho mohou potvrdit nebo zrušit.</p>
   </div>
 
+  <!-- Moje auto -->
+  <div class="view" id="v-car" hidden>
+    <div class="place-head">
+      <div>
+        <h2>Moje auto</h2>
+        <p class="muted" id="car-desc"></p>
+      </div>
+      <button class="icon-btn ghost" id="car-close" aria-label="Zavřít">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="car-preview" id="car-preview"></div>
+    <label class="field" for="car-brand"><span>Značka</span><select id="car-brand"></select></label>
+    <div class="field"><span>Karoserie</span><div class="seg" id="car-body" role="group" aria-label="Karoserie"></div></div>
+    <div class="field"><span>Barva</span><div class="swatches" id="car-color" role="group" aria-label="Barva"></div></div>
+    <label class="field" for="car-year"><span>Rok výroby</span><input id="car-year" type="number" min="1960" max="2026" inputmode="numeric"></label>
+    <p class="hint">Během navigace uvidíš na mapě místo šipky svoje auto. Tvar se řídí karoserií a rokem výroby.</p>
+    <button class="primary" id="car-save">Uložit auto</button>
+  </div>
+
   <!-- Cíl -->
   <div class="view" id="v-arrived" hidden>
     <h2>Jsi v cíli</h2>
@@ -138,6 +174,6 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

@@ -14,7 +14,7 @@ const CFG = {
   offRouteMeters: 60,                 // vzdálenost od trasy, kdy přepočítat
   rerouteEveryMs: 10000,
   reportTtlMs: 3 * 60 * 60 * 1000,    // hlášení zmizí po 3 hodinách
-  simMetersPerTick: 22,               // rychlost jízdy nanečisto
+  simFactor: 3,                       // jízda nanečisto běží 3× rychleji než ve skutečnosti
   simTickMs: 250,
 };
 
@@ -170,6 +170,7 @@ const meMarker = new maplibregl.Marker({ element: meEl, rotationAlignment: 'map'
 
 function setPos(p) {
   S.pos = p;
+  updateSpeed(p);
   meMarker.setLngLat([p.lng, p.lat]);
   if (!meMarker._map) meMarker.addTo(map);
   if (S.nav) {
@@ -198,7 +199,7 @@ $('btn-locate').addEventListener('click', () => {
 });
 
 /* ---------- Panely ---------- */
-const VIEWS = ['idle', 'place', 'routes', 'nav', 'report', 'arrived'];
+const VIEWS = ['idle', 'place', 'routes', 'nav', 'report', 'arrived', 'car'];
 let prevView = 'idle';
 function show(v) {
   VIEWS.forEach((n) => { $('v-' + n).hidden = n !== v; });
@@ -207,6 +208,7 @@ function show(v) {
   $('top').hidden = navOn;
   $('banner').hidden = !navOn;
   $('fabs').hidden = !navOn;
+  $('gauge').hidden = !navOn;
   if (!navOn) $('alert-chip').hidden = true;
 }
 
@@ -334,7 +336,7 @@ async function fetchRoutes(from, to, alternatives) {
   return data.routes;
 }
 
-async function loadRoutes() {
+async function loadRoutes(prefer) {
   if (!S.dest) return;
   const btn = $('btn-routes');
   btn.disabled = true; btn.textContent = 'Počítám trasy…';
@@ -343,12 +345,18 @@ async function loadRoutes() {
     S.routes = routes.map((r, i) => ({ ...r, i, turns: r.legs[0].steps.filter((s) => /turn|end of road|fork|roundabout|rotary/.test(s.maneuver.type)).length }));
     tagRoutes();
     S.sel = 0;
+    if (prefer) {
+      const m = (prefer.tag && S.routes.find((r) => r.tags.some((t) => t[0] === prefer.tag))) ||
+        (prefer.via && S.routes.find((r) => (r.legs[0].summary || '').includes(prefer.via)));
+      if (m) S.sel = m.i;
+    }
     $('routes-note').hidden = !!S.pos;
     $('routes-note').textContent = 'Poloha není známá, trasa začíná ve středu mapy.';
     drawRoutes();
     renderRouteList();
     show('routes');
-    fitRoute(S.routes[0]);
+    updateFavBtn();
+    fitRoute(S.routes[S.sel]);
   } catch (e) {
     toast('Trasu se nepodařilo spočítat. Zkus to znovu za chvíli.');
   } finally {
@@ -389,6 +397,7 @@ function renderRouteList() {
 
 function selectRoute(i) {
   S.sel = i;
+  updateFavBtn();
   drawRoutes();
   document.querySelectorAll('#route-list .route').forEach((b, j) => b.setAttribute('aria-pressed', String(j === i)));
 }
@@ -441,8 +450,8 @@ function startNav(sim) {
   S.nav = prepNav(route);
   S.follow = true;
   $('btn-recenter').hidden = true;
-  meEl.className = 'me nav';
-  meEl.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>';
+  meEl.className = 'me nav car';
+  meEl.innerHTML = carSVG(S.car, 56);
   show('nav');
   unlockSpeech();
   if (sim) startSim();
@@ -521,6 +530,7 @@ function arrive() {
 
 function stopNav() {
   stopSim();
+  resetSpeed();
   S.nav = null;
   meEl.className = 'me'; meEl.innerHTML = '';
   meMarker.setRotation(0);
@@ -613,19 +623,29 @@ function say(text) {
 /* ---------- Jízda nanečisto ---------- */
 function startSim() {
   stopSim();
-  let d = 0;
+  let d = 0, v = 0, last = performance.now();
+  const avg = S.nav.route.distance / Math.max(1, S.nav.route.duration); // průměrná rychlost trasy v m/s
   S.sim = setInterval(() => {
     const N = S.nav;
     if (!N) { stopSim(); return; }
-    d += CFG.simMetersPerTick;
-    if (d >= N.total) d = N.total;
+    const now = performance.now(), dt = Math.min(0.5, (now - last) / 1000);
+    last = now;
+    // cílová rychlost: o něco nad průměrem trasy, před odbočením zpomalit
+    let target = Math.min(avg * 1.2, 36);
+    const st = N.steps[N.stepIdx];
+    if (st && st.maneuver && st.maneuver.type !== 'arrive') {
+      const to = st.at - N.progress;
+      if (to < 120) target = Math.min(target, 6 + Math.max(0, to) / 120 * target * 0.7);
+    }
+    v += (target - v) * Math.min(1, dt * 0.9);
+    d = Math.min(N.total, d + v * dt * CFG.simFactor);
     let i = N.idx;
     while (i < N.cum.length - 1 && N.cum[i + 1] < d) i++;
     const a = N.coords[i], b = N.coords[Math.min(i + 1, N.coords.length - 1)];
     const seg = (N.cum[i + 1] || N.cum[i]) - N.cum[i];
     const t = seg > 0 ? (d - N.cum[i]) / seg : 0;
     const pt = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-    setPos({ lng: pt[0], lat: pt[1], heading: bearing(a, b), speed: null });
+    setPos({ lng: pt[0], lat: pt[1], heading: bearing(a, b), speed: v });
   }, CFG.simTickMs);
 }
 function stopSim() { if (S.sim) { clearInterval(S.sim); S.sim = null; } }
@@ -769,6 +789,271 @@ function toggle3D() {
 }
 $('btn-3d').addEventListener('click', toggle3D);
 $('btn-view').addEventListener('click', toggle3D);
+
+
+/* ---------- Oblíbené trasy ---------- */
+S.favs = store.get('favs', []);
+
+function renderFavs() {
+  const box = $('fav-list');
+  box.innerHTML = '';
+  $('favs').hidden = !S.favs.length;
+  S.favs.forEach((f) => {
+    const row = document.createElement('div');
+    row.className = 'fav-row';
+    const b = document.createElement('button');
+    b.className = 'fav';
+    b.innerHTML = '<span class="f-name"></span><span class="f-sub"></span>';
+    b.children[0].textContent = f.name;
+    b.children[1].textContent = [f.tagLabel, f.via ? 'přes ' + f.via : ''].filter(Boolean).join(' · ') || f.addr || '';
+    b.addEventListener('click', () => {
+      setDest({ name: f.name, addr: f.addr, lng: f.lng, lat: f.lat });
+      loadRoutes(f);
+    });
+    const del = document.createElement('button');
+    del.className = 'fav-del';
+    del.setAttribute('aria-label', 'Odebrat z oblíbených: ' + f.name);
+    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => {
+      S.favs = S.favs.filter((x) => x.id !== f.id);
+      store.set('favs', S.favs);
+      renderFavs();
+      toast('Odebráno z oblíbených.');
+    });
+    row.append(b, del);
+    box.appendChild(row);
+  });
+}
+
+function currentFav() {
+  const r = S.routes[S.sel];
+  if (!r || !S.dest) return null;
+  const tag = (r.tags[0] || [])[0] || '';
+  return S.favs.find((f) => Math.abs(f.lng - S.dest.lng) < 1e-5 && Math.abs(f.lat - S.dest.lat) < 1e-5 && f.tag === tag) || null;
+}
+
+function updateFavBtn() {
+  const saved = !!currentFav();
+  $('btn-fav').classList.toggle('saved', saved);
+  $('btn-fav-label').textContent = saved ? 'V oblíbených' : 'Uložit do oblíbených';
+}
+
+$('btn-fav').addEventListener('click', () => {
+  const r = S.routes[S.sel];
+  if (!r || !S.dest) return;
+  const existing = currentFav();
+  if (existing) {
+    S.favs = S.favs.filter((x) => x !== existing);
+    toast('Odebráno z oblíbených.');
+  } else {
+    const tag = r.tags[0] || [];
+    S.favs.unshift({
+      id: Date.now().toString(36), name: S.dest.name, addr: S.dest.addr || '', lng: S.dest.lng, lat: S.dest.lat,
+      tag: tag[0] || '', tagLabel: tag[1] || '', via: ((r.legs[0].summary || '').split(', ')[0]) || '',
+    });
+    toast('Trasa uložena do oblíbených.');
+  }
+  store.set('favs', S.favs);
+  renderFavs();
+  updateFavBtn();
+});
+
+/* ---------- Tachometr ---------- */
+const GAUGE = { max: 180, from: -120, sweep: 240, limits: [0, 30, 50, 70, 90, 110, 130] };
+S.limit = store.get('limit', 50);
+S.kmh = 0;
+let overSince = 0, lastWarn = 0, lastFix = null;
+const gAng = (v) => GAUGE.from + Math.max(0, Math.min(v, GAUGE.max)) / GAUGE.max * GAUGE.sweep;
+const gPt = (v, r) => { const a = gAng(v) * Math.PI / 180; return [(70 + r * Math.sin(a)).toFixed(2), (70 - r * Math.cos(a)).toFixed(2)]; };
+
+function buildGauge() {
+  const F = 'font-family="IBM Plex Sans, Helvetica, sans-serif"';
+  let g = '<circle cx="70" cy="70" r="66" fill="#140F22"/>';
+  if (S.limit) {
+    const [x0, y0] = gPt(S.limit, 62), [x1, y1] = gPt(GAUGE.max, 62);
+    const large = (GAUGE.max - S.limit) / GAUGE.max * GAUGE.sweep > 180 ? 1 : 0;
+    g += '<path d="M' + x0 + ' ' + y0 + ' A62 62 0 ' + large + ' 1 ' + x1 + ' ' + y1 + '" fill="none" stroke="#FF6B57" stroke-width="5" stroke-opacity=".8"/>';
+  }
+  for (let v = 0; v <= GAUGE.max; v += 10) {
+    const major = v % 20 === 0;
+    const [x0, y0] = gPt(v, major ? 49 : 53), [x1, y1] = gPt(v, 57);
+    g += '<line x1="' + x0 + '" y1="' + y0 + '" x2="' + x1 + '" y2="' + y1 + '" stroke="' + (major ? '#EEF1F5' : '#6B5E8C') + '" stroke-width="' + (major ? 2 : 1.2) + '" stroke-linecap="round"/>';
+  }
+  for (let v = 0; v <= GAUGE.max; v += 40) {
+    const [x, y] = gPt(v, 38);
+    g += '<text x="' + x + '" y="' + (+y + 3.5).toFixed(2) + '" text-anchor="middle" font-size="10" fill="#B5ABCF" ' + F + '>' + v + '</text>';
+  }
+  g += '<text id="g-num" x="70" y="99" text-anchor="middle" font-size="21" font-weight="700" fill="#EEF1F5" font-family="Sora, Helvetica, sans-serif">' + Math.round(S.kmh) + '</text>';
+  g += '<text x="70" y="110" text-anchor="middle" font-size="8" fill="#B5ABCF" ' + F + '>km/h</text>';
+  g += '<text x="70" y="126" text-anchor="middle" font-size="8.5" font-weight="600" letter-spacing=".6" fill="' + (S.limit ? '#FF6B57' : '#B5ABCF') + '" ' + F + '>' + (S.limit ? 'LIMIT ' + S.limit : 'BEZ LIMITU') + '</text>';
+  g += '<g id="g-needle" style="transform-box:view-box;transform-origin:70px 70px;transform:rotate(' + gAng(S.kmh) + 'deg);transition:transform .45s cubic-bezier(.3,1.3,.5,1)">' +
+    '<line x1="70" y1="80" x2="70" y2="15" stroke="#A78BFA" stroke-width="3" stroke-linecap="round"/></g>';
+  g += '<circle cx="70" cy="70" r="6" fill="#A78BFA" stroke="#140F22" stroke-width="2"/>';
+  $('gauge-svg').innerHTML = g;
+  $('gauge').setAttribute('aria-label', 'Tachometr, ' + (S.limit ? 'hlídám rychlost nad ' + S.limit + ' km/h' : 'hlídání rychlosti vypnuté') + '. Klepnutím limit změníš.');
+}
+
+function updateSpeed(p) {
+  const now = Date.now();
+  let ms = null;
+  if (p.speed != null && !isNaN(p.speed) && p.speed >= 0) ms = p.speed;
+  else if (lastFix) {
+    const dt = (now - lastFix.t) / 1000;
+    if (dt >= 0.5) ms = dist([lastFix.lng, lastFix.lat], [p.lng, p.lat]) / dt;
+  }
+  if (!lastFix || ms != null) lastFix = { lng: p.lng, lat: p.lat, t: now };
+  if (ms == null) return;
+  S.kmh = Math.min(250, ms * 3.6);
+  renderSpeed();
+}
+
+function renderSpeed() {
+  const num = $('g-num');
+  if (!num) return;
+  const v = Math.round(S.kmh);
+  num.textContent = v;
+  $('g-needle').style.transform = 'rotate(' + gAng(S.kmh) + 'deg)';
+  const over = !!S.limit && v > S.limit + 2;
+  $('gauge').classList.toggle('over', over);
+  num.setAttribute('fill', over ? '#FF6B57' : '#EEF1F5');
+  if (over && S.nav) {
+    if (!overSince) overSince = Date.now();
+    if (Date.now() - overSince > 2000 && Date.now() - lastWarn > 20000) {
+      lastWarn = Date.now();
+      say('Zpomal, jedeš ' + v + ' kilometrů v hodině.');
+    }
+  } else overSince = 0;
+}
+
+function resetSpeed() { S.kmh = 0; lastFix = null; overSince = 0; renderSpeed(); }
+
+$('gauge').addEventListener('click', () => {
+  const i = GAUGE.limits.indexOf(S.limit);
+  S.limit = GAUGE.limits[(i + 1) % GAUGE.limits.length];
+  store.set('limit', S.limit);
+  buildGauge();
+  renderSpeed();
+  toast(S.limit ? 'Hlídám rychlost nad ' + S.limit + ' km/h.' : 'Hlídání rychlosti vypnuté.');
+});
+
+/* ---------- Moje auto ---------- */
+const CAR_COLORS = [['Bílá', '#F2F3F5'], ['Stříbrná', '#B8BEC8'], ['Šedá', '#6E7480'], ['Černá', '#24232B'], ['Modrá', '#2F6FDB'],
+  ['Tmavě modrá', '#1E3A6E'], ['Červená', '#D9363E'], ['Zelená', '#2E8B57'], ['Žlutá', '#F2C230'], ['Oranžová', '#F07F2B'], ['Hnědá', '#7A5236'], ['Fialová', '#8B5CF6']];
+const CAR_BRANDS = ['Škoda', 'Volkswagen', 'Toyota', 'Hyundai', 'Kia', 'Ford', 'Renault', 'Peugeot', 'Dacia', 'Opel', 'BMW',
+  'Mercedes-Benz', 'Audi', 'Volvo', 'Tesla', 'Mazda', 'Honda', 'Citroën', 'Seat', 'Cupra', 'Suzuki', 'Nissan', 'Fiat', 'Jiná'];
+const CAR_BODIES = [['hatch', 'Hatchback'], ['sedan', 'Sedan'], ['kombi', 'Kombi'], ['suv', 'SUV'], ['van', 'Dodávka'], ['coupe', 'Kupé']];
+S.car = store.get('car', { brand: 'Škoda', body: 'kombi', color: '#B8BEC8', year: 2019 });
+
+// Auto shora, příď nahoru. Tvar podle karoserie, detaily podle roku výroby.
+function carSVG(car, height) {
+  const dims = { hatch: [26, 52], sedan: [26, 62], kombi: [26, 64], suv: [30, 62], van: [30, 72], coupe: [26, 57] }[car.body] || [26, 60];
+  const [w, h] = dims;
+  const x = (40 - w) / 2, y = (80 - h) / 2;
+  const era = car.year < 2000 ? 'old' : car.year < 2015 ? 'mid' : 'new';
+  const rad = era === 'old' ? 3 : era === 'mid' ? 7 : 9.5;
+  const cab = { hatch: [0.25, 0.86], sedan: [0.29, 0.72], kombi: [0.26, 0.9], suv: [0.24, 0.88], van: [0.13, 0.95], coupe: [0.34, 0.72] }[car.body] || [0.27, 0.8];
+  const gx = x + 3.5, gw = w - 7;
+  const ws = y + h * cab[0], wsH = h * (car.body === 'van' ? 0.08 : 0.12);
+  const rearEnd = y + h * cab[1], rgH = car.body === 'van' ? 0 : h * 0.07;
+  const glass = '#16122A';
+  const c = car.color;
+  const parts = [];
+  parts.push('<ellipse cx="20" cy="' + (y + h / 2 + 2) + '" rx="' + (w / 2 + 3) + '" ry="' + (h / 2 + 3) + '" fill="rgba(0,0,0,.4)"/>');
+  // zrcátka
+  const my = ws + wsH * 0.6;
+  parts.push('<rect x="' + (x - 2.4) + '" y="' + my + '" width="3.4" height="3.2" rx="1" fill="' + c + '" stroke="rgba(238,241,245,.6)" stroke-width=".6"/>');
+  parts.push('<rect x="' + (x + w - 1) + '" y="' + my + '" width="3.4" height="3.2" rx="1" fill="' + c + '" stroke="rgba(238,241,245,.6)" stroke-width=".6"/>');
+  // karoserie
+  parts.push('<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + rad + '" fill="' + c + '" stroke="rgba(238,241,245,.75)" stroke-width="1.1"/>');
+  // čelní sklo
+  parts.push('<path d="M' + (gx + 2.2) + ' ' + ws + ' L' + (gx + gw - 2.2) + ' ' + ws + ' L' + (gx + gw) + ' ' + (ws + wsH) + ' L' + gx + ' ' + (ws + wsH) + ' Z" fill="' + glass + '"/>');
+  // střecha
+  const roofTop = ws + wsH + 0.8, roofBot = rearEnd - rgH - 0.8;
+  parts.push('<rect x="' + (gx + 0.6) + '" y="' + roofTop + '" width="' + (gw - 1.2) + '" height="' + (roofBot - roofTop) + '" rx="2.2" fill="rgba(0,0,0,.14)"/>');
+  // boční okna
+  parts.push('<rect x="' + (gx - 1.4) + '" y="' + (ws + wsH) + '" width="1.6" height="' + (rearEnd - rgH - ws - wsH) + '" rx=".8" fill="' + glass + '"/>');
+  parts.push('<rect x="' + (gx + gw - 0.2) + '" y="' + (ws + wsH) + '" width="1.6" height="' + (rearEnd - rgH - ws - wsH) + '" rx=".8" fill="' + glass + '"/>');
+  // zadní sklo
+  if (rgH) parts.push('<path d="M' + gx + ' ' + (rearEnd - rgH) + ' L' + (gx + gw) + ' ' + (rearEnd - rgH) + ' L' + (gx + gw - 1.6) + ' ' + rearEnd + ' L' + (gx + 1.6) + ' ' + rearEnd + ' Z" fill="' + glass + '"/>');
+  // střešní ližiny (SUV, kombi) a žebra (dodávka)
+  if (car.body === 'suv' || car.body === 'kombi') {
+    parts.push('<line x1="' + (gx + 2) + '" y1="' + (roofTop + 2) + '" x2="' + (gx + 2) + '" y2="' + (roofBot - 2) + '" stroke="rgba(0,0,0,.45)" stroke-width="1.1" stroke-linecap="round"/>');
+    parts.push('<line x1="' + (gx + gw - 2) + '" y1="' + (roofTop + 2) + '" x2="' + (gx + gw - 2) + '" y2="' + (roofBot - 2) + '" stroke="rgba(0,0,0,.45)" stroke-width="1.1" stroke-linecap="round"/>');
+  }
+  if (car.body === 'van') {
+    for (let k = 1; k <= 3; k++) {
+      const ry = roofTop + (roofBot - roofTop) * k / 4;
+      parts.push('<line x1="' + (gx + 2) + '" y1="' + ry + '" x2="' + (gx + gw - 2) + '" y2="' + ry + '" stroke="rgba(0,0,0,.25)" stroke-width="1"/>');
+    }
+  }
+  // světla podle roku
+  const fy = y + 1.4, ry2 = y + h - 1.4;
+  if (era === 'old') {
+    parts.push('<rect x="' + (x + 2.5) + '" y="' + fy + '" width="6" height="2.6" fill="#FFF3C4"/><rect x="' + (x + w - 8.5) + '" y="' + fy + '" width="6" height="2.6" fill="#FFF3C4"/>');
+    parts.push('<rect x="' + (x + 2.5) + '" y="' + (ry2 - 2.6) + '" width="6" height="2.6" fill="#E0323A"/><rect x="' + (x + w - 8.5) + '" y="' + (ry2 - 2.6) + '" width="6" height="2.6" fill="#E0323A"/>');
+  } else if (era === 'mid') {
+    parts.push('<ellipse cx="' + (x + 6) + '" cy="' + (fy + 1.8) + '" rx="3.6" ry="1.9" fill="#FFF3C4"/><ellipse cx="' + (x + w - 6) + '" cy="' + (fy + 1.8) + '" rx="3.6" ry="1.9" fill="#FFF3C4"/>');
+    parts.push('<ellipse cx="' + (x + 6) + '" cy="' + (ry2 - 1.6) + '" rx="3.4" ry="1.6" fill="#E0323A"/><ellipse cx="' + (x + w - 6) + '" cy="' + (ry2 - 1.6) + '" rx="3.4" ry="1.6" fill="#E0323A"/>');
+  } else {
+    parts.push('<rect x="' + (x + 3) + '" y="' + (fy + 0.6) + '" width="' + (w - 6) + '" height="1.3" rx=".65" fill="#EAF4FF"/>');
+    parts.push('<rect x="' + (x + 3.5) + '" y="' + (ry2 - 1.6) + '" width="' + (w - 7) + '" height="1.3" rx=".65" fill="#FF3D4A"/>');
+  }
+  return '<svg viewBox="0 0 40 80" style="width:' + (height / 2) + 'px;height:' + height + 'px;fill:none;stroke:none;overflow:visible" aria-hidden="true">' + parts.join('') + '</svg>';
+}
+
+let carDraft = null;
+function carLabel(c) { return [c.brand, (CAR_BODIES.find((b) => b[0] === c.body) || [])[1], c.year].filter(Boolean).join(' · '); }
+function renderCarForm() {
+  const c = carDraft;
+  $('car-preview').innerHTML = carSVG(c, 110);
+  $('car-desc').textContent = carLabel(c);
+  document.querySelectorAll('#car-body button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.body === c.body)));
+  document.querySelectorAll('#car-color button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === c.color)));
+}
+(function buildCarForm() {
+  const sel = $('car-brand');
+  CAR_BRANDS.forEach((b) => { const o = document.createElement('option'); o.value = b; o.textContent = b; sel.appendChild(o); });
+  sel.addEventListener('change', () => { carDraft.brand = sel.value; renderCarForm(); });
+  const bodies = $('car-body');
+  CAR_BODIES.forEach(([k, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.body = k; b.textContent = label;
+    b.addEventListener('click', () => { carDraft.body = k; renderCarForm(); });
+    bodies.appendChild(b);
+  });
+  const cols = $('car-color');
+  CAR_COLORS.forEach(([label, hex]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.color = hex; b.style.background = hex; b.setAttribute('aria-label', label); b.title = label;
+    b.addEventListener('click', () => { carDraft.color = hex; renderCarForm(); });
+    cols.appendChild(b);
+  });
+  $('car-year').addEventListener('input', () => {
+    const y = parseInt($('car-year').value, 10);
+    if (y >= 1960 && y <= 2026) { carDraft.year = y; renderCarForm(); }
+  });
+})();
+$('btn-car').addEventListener('click', () => {
+  carDraft = { ...S.car };
+  $('car-brand').value = carDraft.brand;
+  $('car-year').value = carDraft.year;
+  $('results').hidden = true;
+  renderCarForm();
+  show('car');
+});
+$('car-close').addEventListener('click', () => show(S.dest ? 'place' : 'idle'));
+$('car-save').addEventListener('click', () => {
+  const y = parseInt($('car-year').value, 10);
+  if (!(y >= 1960 && y <= 2026)) { toast('Zadej rok výroby mezi 1960 a 2026.'); $('car-year').focus(); return; }
+  carDraft.year = y;
+  S.car = { ...carDraft };
+  store.set('car', S.car);
+  toast('Auto uloženo: ' + carLabel(S.car));
+  show(S.dest ? 'place' : 'idle');
+});
+
+renderFavs();
+buildGauge();
 
 /* ---------- Rychlé cíle Domů / Práce ---------- */
 S.saved = store.get('saved', { home: null, work: null });
