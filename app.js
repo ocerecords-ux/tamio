@@ -1,5 +1,5 @@
 /* Tamio – prototyp navigace
- * Mapa: OpenStreetMap (podklad CARTO Dark Matter)
+ * Mapa: OpenStreetMap (vektorové dlaždice OpenFreeMap, 3D budovy)
  * Hledání adres: Nominatim (OSM)
  * Trasy: OSRM (veřejný demo server)
  * Hlášení a uložená místa: zatím jen v tomto prohlížeči (localStorage)
@@ -96,30 +96,36 @@ function here() {
 /* ---------- Mapa ---------- */
 const map = new maplibregl.Map({
   container: 'map',
-  style: {
-    version: 8,
-    sources: {
-      base: {
-        type: 'raster',
-        tiles: [
-          'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        ],
-        tileSize: 256,
-        maxzoom: 20,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> · © <a href="https://carto.com/attributions" target="_blank">CARTO</a> · trasy <a href="https://project-osrm.org" target="_blank">OSRM</a>',
-      },
-    },
-    layers: [{ id: 'base', type: 'raster', source: 'base', paint: { 'raster-brightness-max': 0.9, 'raster-saturation': -0.2 } }],
-  },
+  style: 'https://tiles.openfreemap.org/styles/dark',
+  customAttribution: 'trasy <a href="https://project-osrm.org" target="_blank">OSRM</a>',
   center: CFG.start,
   zoom: 12,
   attributionControl: { compact: true },
   pitchWithRotate: true,
 });
 
+
+/* Podkladová mapa v barvách Tamia */
+function tintBaseMap() {
+  const set = (id, prop, val) => { if (map.getLayer(id)) { try { map.setPaintProperty(id, prop, val); } catch (e) { /* vrstva bez vlastnosti */ } } };
+  set('background', 'background-color', '#191330');
+  set('water', 'fill-color', '#1C2B4A');
+  set('waterway', 'line-color', '#1C2B4A');
+  set('landuse_park', 'fill-color', '#17301F');
+  set('landcover_wood', 'fill-color', '#17301F');
+  set('landuse_residential', 'fill-color', '#1C1535');
+  set('building', 'fill-color', '#2B2244');
+  ['highway_minor', 'highway_path'].forEach((id) => set(id, 'line-color', '#3A2F58'));
+  ['highway_major_inner', 'highway_major_subtle'].forEach((id) => set(id, 'line-color', '#514477'));
+  ['highway_motorway_inner', 'highway_motorway_subtle'].forEach((id) => set(id, 'line-color', '#6B5E8C'));
+  ['highway_major_casing', 'highway_motorway_casing'].forEach((id) => set(id, 'line-color', '#140F22'));
+  map.getStyle().layers.forEach((l) => {
+    if (l.type === 'symbol') { set(l.id, 'text-color', '#B5ABCF'); set(l.id, 'text-halo-color', '#140F22'); }
+  });
+}
+
 map.on('load', () => {
+  tintBaseMap();
   map.addSource('routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'routes-alt', type: 'line', source: 'routes', filter: ['==', ['get', 'sel'], false],
@@ -714,7 +720,6 @@ function updateAhead() {
 
 /* ---------- 3D: budovy z OpenStreetMap a terén ---------- */
 const TERRAIN_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-const BUILDINGS_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 let has3dBuildings = false, hasTerrain = false;
 
 async function add3D() {
@@ -723,12 +728,9 @@ async function add3D() {
     hasTerrain = true;
   } catch (e) { console.warn('Terén nedostupný', e); }
   try {
-    const style = await (await fetch(BUILDINGS_STYLE)).json();
-    const src = style.sources && style.sources.openmaptiles;
-    if (!src || !src.url) throw new Error('chybí zdroj budov');
-    map.addSource('omt', { type: 'vector', url: src.url, attribution: '© OpenFreeMap' });
+    if (!map.getSource('openmaptiles')) throw new Error('chybí zdroj budov');
     map.addLayer({
-      id: 'buildings-3d', type: 'fill-extrusion', source: 'omt', 'source-layer': 'building', minzoom: 13.5,
+      id: 'buildings-3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building', minzoom: 13.5,
       paint: {
         'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 8], 0, '#2B2244', 30, '#3B2F5C', 90, '#55487A', 200, '#7A6BA8'],
         'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13.5, 0, 15, ['coalesce', ['get', 'render_height'], 8]],
@@ -746,7 +748,10 @@ function apply3D(animate) {
     b.querySelector('.view-label').textContent = S.view3d ? '2D' : '3D';
     b.setAttribute('aria-label', S.view3d ? 'Přepnout na 2D mapu' : 'Přepnout na 3D pohled');
   });
-  if (has3dBuildings) map.setLayoutProperty('buildings-3d', 'visibility', S.view3d ? 'visible' : 'none');
+  if (has3dBuildings) {
+    map.setLayoutProperty('buildings-3d', 'visibility', S.view3d ? 'visible' : 'none');
+    if (map.getLayer('building')) map.setLayoutProperty('building', 'visibility', S.view3d ? 'none' : 'visible');
+  }
   if (hasTerrain) {
     try { map.setTerrain(S.view3d ? { source: 'terrain', exaggeration: 1.3 } : null); } catch (e) { /* bez terénu */ }
   }

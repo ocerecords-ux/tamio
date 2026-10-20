@@ -18,7 +18,7 @@ Na mobilu: telefon a Mac ve stejné Wi-Fi, na telefonu otevři `http://<IP adres
 ## Co umí
 
 - Mapa OpenStreetMap v tmavém režimu, sledování tvé polohy
-- 3D pohled: budovy z OpenStreetMap (dlaždice OpenFreeMap) a prostorový terén, přepínač 2D/3D nahoře i během jízdy
+- 3D pohled: budovy z OpenStreetMap (dlaždice OpenFreeMap, která dává i podkladovou mapu) a prostorový terén, přepínač 2D/3D nahoře i během jízdy
 - Hledání adres a míst (Nominatim), cíl i podržením prstu na mapě
 - Rychlá tlačítka Benzinka, Nabíječka, Parkování (hledá v okolí)
 - Až tři trasy s označením Nejrychlejší / Klidná (nejméně odbočení) / Nejkratší
