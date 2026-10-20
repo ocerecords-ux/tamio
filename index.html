@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#140F22">
+<title>Tamio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<link href="style.css" rel="stylesheet">
+</head>
+<body>
+<div id="map" aria-label="Mapa"></div>
+
+<!-- Horní lišta: logo + vyhledávání -->
+<header class="top" id="top">
+  <div class="brand-row">
+    <div class="brand">tamio</div>
+    <div class="top-btns">
+      <button class="icon-btn view-btn" id="btn-3d" aria-label="Přepnout na 2D mapu"><span class="view-label">2D</span></button>
+      <button class="icon-btn" id="btn-locate" aria-label="Vycentrovat na mou polohu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </button>
+    </div>
+  </div>
+  <label class="search" for="q">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <input id="q" type="search" placeholder="Kam jedeš?" autocomplete="off" enterkeyhint="search">
+    <button class="clear" id="q-clear" aria-label="Smazat hledání" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </label>
+  <ul class="results" id="results" hidden></ul>
+</header>
+
+<!-- Navigační pokyn (jen během jízdy) -->
+<section class="banner" id="banner" hidden>
+  <div class="banner-icon" id="banner-icon"></div>
+  <div class="banner-text">
+    <div class="banner-dist" id="banner-dist">–</div>
+    <div class="banner-instr" id="banner-instr">–</div>
+  </div>
+</section>
+<div class="alert-chip" id="alert-chip" hidden></div>
+
+<!-- Plovoucí tlačítka během jízdy -->
+<div class="fabs" id="fabs" hidden>
+  <button class="fab view-btn" id="btn-view" aria-label="Přepnout na 2D mapu"><span class="view-label">2D</span></button>
+  <button class="fab accent" id="btn-report" aria-label="Nahlásit událost">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/></svg>
+  </button>
+  <button class="fab" id="btn-mute" aria-label="Ztlumit hlas" aria-pressed="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true" id="mute-icon"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg>
+  </button>
+  <button class="fab" id="btn-recenter" aria-label="Sledovat polohu" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 19-7-4-7 4z"/></svg>
+  </button>
+</div>
+
+<!-- Spodní panel – obsah se mění podle stavu -->
+<section class="sheet" id="sheet" aria-live="polite">
+  <div class="grip" aria-hidden="true"></div>
+
+  <!-- Výchozí stav -->
+  <div class="view" id="v-idle">
+    <div class="quick" id="quick"></div>
+    <div class="chips">
+      <button class="chip" data-poi="čerpací stanice">Benzinka</button>
+      <button class="chip" data-poi="nabíjecí stanice">Nabíječka</button>
+      <button class="chip" data-poi="parkoviště">Parkování</button>
+    </div>
+    <p class="hint" id="idle-hint">Vyhledej cíl nahoře, nebo podrž prst na mapě.</p>
+  </div>
+
+  <!-- Vybrané místo -->
+  <div class="view" id="v-place" hidden>
+    <div class="place-head">
+      <div>
+        <h2 id="place-name">–</h2>
+        <p class="muted" id="place-addr"></p>
+      </div>
+      <button class="icon-btn ghost" id="place-close" aria-label="Zavřít">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <button class="primary" id="btn-routes">Ukázat trasy</button>
+    <div class="row-btns">
+      <button class="secondary" id="save-home">Uložit jako Domů</button>
+      <button class="secondary" id="save-work">Uložit jako Práce</button>
+    </div>
+  </div>
+
+  <!-- Výběr trasy -->
+  <div class="view" id="v-routes" hidden>
+    <div class="place-head">
+      <h2>Kudy pojedeš?</h2>
+      <button class="icon-btn ghost" id="routes-close" aria-label="Zpět">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+    </div>
+    <p class="note" id="routes-note" hidden></p>
+    <div class="route-list" id="route-list"></div>
+    <button class="primary" id="btn-go">Jedeme</button>
+    <button class="text-btn" id="btn-sim">Vyzkoušet jízdu nanečisto</button>
+  </div>
+
+  <!-- Navigace -->
+  <div class="view nav-bottom" id="v-nav" hidden>
+    <div>
+      <div class="eta" id="nav-eta">–</div>
+      <div class="muted" id="nav-rest">–</div>
+    </div>
+    <button class="secondary end" id="btn-end">Konec</button>
+  </div>
+
+  <!-- Hlášení -->
+  <div class="view" id="v-report" hidden>
+    <div class="place-head">
+      <h2>Co se děje?</h2>
+      <button class="icon-btn ghost" id="report-close" aria-label="Zavřít">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="report-grid" id="report-grid"></div>
+    <p class="hint">Hlášení se uloží na místo, kde právě jsi. Ostatní ho mohou potvrdit nebo zrušit.</p>
+  </div>
+
+  <!-- Cíl -->
+  <div class="view" id="v-arrived" hidden>
+    <h2>Jsi v cíli</h2>
+    <p class="muted" id="arrived-name"></p>
+    <button class="primary" id="btn-arrived-ok">Hotovo</button>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
